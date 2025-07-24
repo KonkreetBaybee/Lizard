@@ -1,0 +1,30 @@
+# Edit project-level build.gradle
+diff --git a/build.gradle b/build.gradle
+--- a/build.gradle
++++ b/build.gradle
+@@ -7,6 +7,9 @@
+         google()
+         mavenCentral()
+         jcenter() // Warning: this repository is going to shut down soon
++        maven {
++            url "https://maven.mozilla.org/maven2/"
++        }
+     }
+ }
+
+# Edit app-level build.gradle (use stable GeckoView version)
+diff --git a/app/build.gradle b/app/build.gradle
+--- a/app/build.gradle
++++ b/app/build.gradle
+@@ -42,6 +42,7 @@
+     implementation 'androidx.webkit:webkit:1.4.0'
+     implementation 'com.google.android.material:material:1.4.0'
+     implementation 'androidx.preference:preference:1.1.1'
++    implementation 'org.mozilla.geckoview:geckoview:120.0.20231122092830'
+ }
+
+ # Sync and build project
++ ./gradlew clean build
+
+# Run the app
++ ./gradlew installDebug

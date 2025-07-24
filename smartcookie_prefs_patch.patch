@@ -1,0 +1,145 @@
+From 9a8b7c1abc123def4567890 Mon Sep 17 00:00:00 2001
+From: YourName <you@example.com>
+Date: Wed, 24 Jul 2025 13:00:00 -0600
+Subject: [PATCH] Inject custom Gecko prefs, tap overlay, and settings toggles
+
+---
+ app/src/main/java/acr/browser/lightning/constant/PreferenceConstants.kt |  7 +++
+ app/src/main/java/acr/browser/lightning/fragment/SettingsFragment.kt    | 41 ++++++++++++++++++
+ app/src/main/java/acr/browser/lightning/view/BrowserEngine.kt           | 22 ++++++++++
+ app/src/main/java/acr/browser/lightning/ui/TapOverlayService.kt         | 60 ++++++++++++++++++++++++++++
+ app/src/main/AndroidManifest.xml                                        |  7 ++++
+ 5 files changed, 137 insertions(+)
+
+--- /dev/null
++++ b/app/src/main/java/acr/browser/lightning/ui/TapOverlayService.kt
+@@
++package acr.browser.lightning.ui
++
++import android.app.Service
++import android.content.Intent
++import android.graphics.PixelFormat
++import android.os.IBinder
++import android.view.Gravity
++import android.view.LayoutInflater
++import android.view.MotionEvent
++import android.view.View
++import android.view.WindowManager
++import android.widget.TextView
++import acr.browser.lightning.R
++import kotlinx.coroutines.*
++
++class TapOverlayService : Service() {
++    private lateinit var overlayView: View
++    private lateinit var windowManager: WindowManager
++    private var tapCount = 0
++    private var tps = 0
++    private var lastSecond = System.currentTimeMillis()
++
++    override fun onBind(intent: Intent?): IBinder? = null
++
++    override fun onCreate() {
++        super.onCreate()
++        windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
++        overlayView = LayoutInflater.from(this).inflate(R.layout.tap_overlay, null)
++        val params = WindowManager.LayoutParams(
++            WindowManager.LayoutParams.WRAP_CONTENT,
++            WindowManager.LayoutParams.WRAP_CONTENT,
++            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
++            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
++            PixelFormat.TRANSLUCENT
++        )
++        params.gravity = Gravity.TOP or Gravity.END
++        windowManager.addView(overlayView, params)
++        val textView = overlayView.findViewById<TextView>(R.id.tapStats)
++        overlayView.setOnTouchListener { _, event ->
++            if (event.action == MotionEvent.ACTION_DOWN) {
++                tapCount++
++            }
++            true
++        }
++        GlobalScope.launch(Dispatchers.Main) {
++            while (isActive) {
++                val now = System.currentTimeMillis()
++                if (now - lastSecond >= 1000) {
++                    tps = tapCount
++                    tapCount = 0
++                    lastSecond = now
++                }
++                textView.text = "Taps: $tapCount\nTPS: $tps"
++                delay(200)
++            }
++        }
++    }
++
++    override fun onDestroy() {
++        super.onDestroy()
++        windowManager.removeView(overlayView)
++    }
++}
+
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@
+     <application
+         ...>
++        <service
++            android:name=".ui.TapOverlayService"
++            android:permission="android.permission.SYSTEM_ALERT_WINDOW"/>
+     </application>
++
++    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+
+--- a/app/src/main/java/acr/browser/lightning/constant/PreferenceConstants.kt
++++ b/app/src/main/java/acr/browser/lightning/constant/PreferenceConstants.kt
+@@
+ object PreferenceConstants {
+     const val FORCE_ZOOM = "pref_force_zoom"
++    const val TAP_OVERLAY = "pref_tap_overlay"
++    const val ENABLE_PREF_TWEAKS = "pref_enable_gecko_prefs"
+ }
+
+--- a/app/src/main/java/acr/browser/lightning/fragment/SettingsFragment.kt
++++ b/app/src/main/java/acr/browser/lightning/fragment/SettingsFragment.kt
+@@
+     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
+         setPreferencesFromResource(R.xml.preferences, rootKey)
+
++        findPreference<SwitchPreferenceCompat>(PreferenceConstants.TAP_OVERLAY)?.setOnPreferenceChangeListener { _, newValue ->
++            val enabled = newValue as Boolean
++            val context = requireContext()
++            if (enabled) {
++                context.startService(Intent(context, TapOverlayService::class.java))
++            } else {
++                context.stopService(Intent(context, TapOverlayService::class.java))
++            }
++            true
++        }
+     }
+
+--- a/app/src/main/java/acr/browser/lightning/view/BrowserEngine.kt
++++ b/app/src/main/java/acr/browser/lightning/view/BrowserEngine.kt
+@@ fun initializePrefs(profile: GeckoProfile) {
++        if (prefs.getBoolean(PreferenceConstants.ENABLE_PREF_TWEAKS, false)) {
++            profile.setPreference("apz.allow_zooming", false)
++            profile.setPreference("browser.gesture.pinch.in", "")
++            profile.setPreference("browser.gesture.pinch.out", "")
++            profile.setPreference("browser.gesture.pinch.latched", false)
++            profile.setPreference("dom.w3c.touch_events.enabled", 1)
++            profile.setPreference("apz.axis_lock.mode", 1)
++            profile.setPreference("apz.content_response_timeout", 150)
++            profile.setPreference("apz.paint_skipping.enabled", true)
++            profile.setPreference("apz.touch_start_tolerance", "0.1")
++            profile.setPreference("layout.css.touch_action.enabled", true)
++            profile.setPreference("ui.click_hold_context_menus.delay", 600)
++            profile.setPreference("browser.ui.zoom.force-user-scalable", false)
++            profile.setPreference("gfx.webrender.all", true)
++            profile.setPreference("layers.acceleration.force-enabled", true)
++            profile.setPreference("layout.frame_rate", 60)
++            profile.setPreference("general.smoothScroll", false)
++            profile.setPreference("general.smoothScroll.msdPhysics.enabled", false)
++            profile.setPreference("accessibility.blockautorefresh", true)
++            profile.setPreference("dom.event.clipboardevents.enabled", false)
++            profile.setPreference("full-screen-api.warning.timeout", 0)
++        }
+     }
